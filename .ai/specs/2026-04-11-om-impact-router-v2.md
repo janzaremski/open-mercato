@@ -460,6 +460,30 @@ Invoke the skill against each fixture and verify:
 
 ---
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Strip Script to Fact-Gatherer | Done | 2026-04-11 | All 5 steps complete, 4 fixtures passing |
+| Phase 2 — Update SKILL.md with LLM Judgment Instructions | Done | 2026-04-11 | All 6 steps complete |
+
+### Phase 1 — Detailed Progress
+- [x] Step 1: Remove classification functions and their dependencies
+- [x] Step 2: Remove the `--format` CLI flag
+- [x] Step 3: Simplify `main()` to fact-gathering only
+- [x] Step 4: Fix `findRelevantSpecs()` recursion
+- [x] Step 5: Verify against fixtures (all 4 produce valid JSON, exit code 0)
+
+### Phase 2 — Detailed Progress
+- [x] Step 1: Rewrite "How to Produce the Report" section (6-step process; spec steps 2+3 merged)
+- [x] Step 2: Add strategy determination instructions (priority-ordered logic)
+- [x] Step 3: Add implication inference table
+- [x] Step 4: Add naive miss generation checklist
+- [x] Step 5: Add authoritative output declaration
+- [x] Step 6: Full skill flow verified against spec requirements
+
+---
+
 ## Changelog
 
 ### 2026-04-11
@@ -467,3 +491,4 @@ Invoke the skill against each fixture and verify:
 - Documents v1 current state, 5 review findings, and refactor direction
 - Defines fact-gatherer script boundary, LLM judgment instructions, and cross-skill integration
 - Implementation plan: Phase 1 (strip script) + Phase 2 (update SKILL.md)
+- **Implementation complete**: Both phases implemented, all fixtures passing
