@@ -29,6 +29,12 @@ interface ModuleSignals {
   hasExtensions: boolean
   hasWorkers: boolean
   hasSubscribers: boolean
+  hasWidgetInjection: boolean
+  hasComponentOverrides: boolean
+  hasFrontendPages: boolean
+  hasBackendPages: boolean
+  hasNotifications: boolean
+  hasNotificationRenderers: boolean
 }
 
 interface DownstreamRef {
@@ -48,6 +54,7 @@ interface ImpactReport {
   strategy: 'system-extension' | 'module-scaffold' | 'eject-and-customize' | 'uncertain'
   strategyReason: string
   naiveAgentMisses: string[]
+  relevantSpecs: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +151,12 @@ function scanModule(repoRoot: string, moduleId: string): ModuleSignals | null {
     hasExtensions: has('data/extensions.ts'),
     hasWorkers: has('workers'),
     hasSubscribers: has('subscribers'),
+    hasWidgetInjection: has('widgets/injection-table.ts'),
+    hasComponentOverrides: has('widgets/components.ts'),
+    hasFrontendPages: has('frontend'),
+    hasBackendPages: has('backend'),
+    hasNotifications: has('notifications.ts'),
+    hasNotificationRenderers: has('notifications.client.ts'),
   }
 }
 
@@ -200,19 +213,46 @@ function determineStrategy(
   const coreChangeKeywords = ['change behavior', 'modify core', 'override calculation', 'replace service', 'change how', 'rewrite']
   const isCoreChange = coreChangeKeywords.some(kw => lower.includes(kw))
 
-  // Signals that suggest a new domain
-  const newDomainKeywords = ['new module', 'new domain', 'new entity', 'create a module', 'standalone', 'separate module']
-  const isNewDomain = newDomainKeywords.some(kw => lower.includes(kw))
+  // Signals that suggest a new domain — split into strong (explicitly a new module)
+  // and weak (could be a new entity within an existing module)
+  const strongNewDomainKeywords = ['new module', 'create a module', 'standalone', 'separate module']
+  const weakNewDomainKeywords = ['new domain', 'new entity']
+  const isStrongNewDomain = strongNewDomainKeywords.some(kw => lower.includes(kw))
+  const isNewDomain = isStrongNewDomain || weakNewDomainKeywords.some(kw => lower.includes(kw))
 
   // Signals that suggest additive change
-  const additiveKeywords = ['add field', 'add column', 'add a field', 'new field', 'extend', 'add to', 'expose in', 'include in', 'surface']
+  const additiveKeywords = ['add field', 'add column', 'add a field', 'add a ', 'new field', 'extend', 'add to', 'expose in', 'exposed in', 'include in']
   const isAdditive = additiveKeywords.some(kw => lower.includes(kw))
+
+  // Signals that suggest touching a frozen contract surface (BC rules)
+  const frozenSurfaceKeywords = [
+    'rename event', 'change event id', 'rename feature', 'remove column',
+    'rename api', 'rename route', 'change http method', 'rename table',
+    'drop column', 'rename column', 'remove event', 'rename widget',
+    'change spot id', 'rename service', 'change di',
+  ]
+  const isFrozenSurface = frozenSurfaceKeywords.some(kw => lower.includes(kw))
+
+  // Signals that suggest touching lib/ or services/ (core internals)
+  const libServiceKeywords = [
+    'modify service', 'change calculation', 'change pricing logic',
+    'modify lib', 'change lib/', 'change services/',
+    'alter service', 'modify engine', 'change engine', 'modify pipeline',
+  ]
+  const touchesLibOrServices = libServiceKeywords.some(kw => lower.includes(kw))
 
   if (primary.length === 0) {
     if (isNewDomain) {
       return { strategy: 'module-scaffold', reason: 'No existing module matches the domain and issue describes a new bounded entity' }
     }
     return { strategy: 'uncertain', reason: 'No matching module found — clarify which domain this change belongs to' }
+  }
+
+  if (isStrongNewDomain) {
+    return {
+      strategy: 'module-scaffold',
+      reason: 'Issue explicitly describes a new standalone module — existing module keyword matches are likely related context, not the target module',
+    }
   }
 
   if (isCoreChange) {
@@ -222,18 +262,28 @@ function determineStrategy(
     }
   }
 
-  if (isNewDomain && primary.length === 0) {
-    return { strategy: 'module-scaffold', reason: 'No existing module matches; issue describes a new entity and API surface' }
+  if (isFrozenSurface) {
+    return {
+      strategy: 'eject-and-customize',
+      reason: 'Issue describes changes to a frozen contract surface (BC rule) — stop and confirm with developer',
+    }
   }
 
-  if (isAdditive || primary.length > 0) {
+  if (touchesLibOrServices) {
+    return {
+      strategy: 'eject-and-customize',
+      reason: `Issue implies modifying core business logic in lib/ or services/ of "${primary[0]?.moduleId}" — UMES extensions cannot override this`,
+    }
+  }
+
+  if (isAdditive) {
     return {
       strategy: 'system-extension',
       reason: `Change is additive (new field/API/enricher) on existing module "${primary[0]?.moduleId}" — use UMES extension mechanisms`,
     }
   }
 
-  return { strategy: 'uncertain', reason: 'Signals are mixed — review strategy-router-rules.md with the specific file signals' }
+  return { strategy: 'uncertain', reason: 'Primary module exists but change intent is ambiguous — review strategy-router-rules.md with the specific file signals' }
 }
 
 // ---------------------------------------------------------------------------
@@ -255,15 +305,24 @@ function buildNaiveMisses(primary: ModuleSignals[], downstream: DownstreamRef[],
   if (implications.enricherAffected) {
     misses.push('response enricher update — downstream modules that enrich this entity\'s API response may need updating')
   }
+  if (primary.some(m => m.hasWidgetInjection)) {
+    misses.push('widget injection table — existing injection spots may need new entries or validation after this change')
+  }
+  if (primary.some(m => m.hasNotifications)) {
+    misses.push('notification type declarations — module has notification types that may need a new entry or update')
+  }
+  if (primary.some(m => m.hasFrontendPages)) {
+    misses.push('frontend pages — module has customer-facing pages that may need updating for the new data')
+  }
 
-  return misses.slice(0, 4) // cap at 4 items
+  return misses.slice(0, 5)
 }
 
 // ---------------------------------------------------------------------------
 // Report rendering
 // ---------------------------------------------------------------------------
 
-function renderMarkdown(report: ImpactReport, issueText: string): string {
+function renderMarkdown(report: ImpactReport, issueText: string, repoRoot: string): string {
   const lines: string[] = []
 
   lines.push('## Impact Report\n')
@@ -306,10 +365,16 @@ function renderMarkdown(report: ImpactReport, issueText: string): string {
   lines.push('- `AGENTS.md` (root)')
   lines.push('- `packages/core/AGENTS.md`')
   for (const m of report.primaryModules) {
-    lines.push(`- \`packages/core/src/modules/${m.moduleId}/AGENTS.md\``)
+    const agentsPath = join(repoRoot, 'packages/core/src/modules', m.moduleId, 'AGENTS.md')
+    if (existsSync(agentsPath)) {
+      lines.push(`- \`packages/core/src/modules/${m.moduleId}/AGENTS.md\``)
+    }
   }
   for (const d of report.downstreamModules) {
-    lines.push(`- \`packages/core/src/modules/${d.moduleId}/AGENTS.md\``)
+    const agentsPath = join(repoRoot, 'packages/core/src/modules', d.moduleId, 'AGENTS.md')
+    if (existsSync(agentsPath)) {
+      lines.push(`- \`packages/core/src/modules/${d.moduleId}/AGENTS.md\``)
+    }
   }
 
   if (report.strategy === 'system-extension') {
@@ -320,6 +385,14 @@ function renderMarkdown(report: ImpactReport, issueText: string): string {
 
   lines.push('- `.ai/skills/spec-writing/SKILL.md` _(if no spec exists)_')
   lines.push('- `.ai/skills/pre-implement-spec/SKILL.md` _(if spec exists)_')
+
+  if (report.relevantSpecs.length > 0) {
+    lines.push('')
+    lines.push('**Relevant specs:**')
+    for (const spec of report.relevantSpecs) {
+      lines.push(`- \`${spec}\``)
+    }
+  }
   lines.push('')
 
   // Section 4: Next Action
@@ -346,6 +419,94 @@ function renderMarkdown(report: ImpactReport, issueText: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Spec surfacing — scan .ai/specs/ for relevant specs by module keywords
+// ---------------------------------------------------------------------------
+
+function findRelevantSpecs(repoRoot: string, primaryModuleIds: string[], issueText: string): string[] {
+  const specDirs = ['.ai/specs', '.ai/specs/enterprise']
+  const matched: string[] = []
+
+  const searchTerms = new Set<string>()
+  for (const id of primaryModuleIds) {
+    searchTerms.add(id)
+    searchTerms.add(id.replace(/_/g, '-'))
+    searchTerms.add(id.replace(/_/g, ' '))
+    const kws = MODULE_KEYWORDS[id]
+    if (kws) {
+      for (const kw of kws.slice(0, 3)) searchTerms.add(kw)
+    }
+  }
+
+  for (const dir of specDirs) {
+    const absDir = join(repoRoot, dir)
+    if (!existsSync(absDir)) continue
+
+    const files = readdirSync(absDir).filter((f: string) =>
+      f.endsWith('.md') && !['README.md', 'AGENTS.md', 'CLAUDE.md', 'LICENSE.md'].includes(f)
+    )
+
+    for (const file of files) {
+      const fileLower = file.toLowerCase()
+      let isMatch = [...searchTerms].some(term => fileLower.includes(term.toLowerCase()))
+
+      if (!isMatch) {
+        try {
+          const content = readFileSync(join(absDir, file), 'utf-8')
+          const first20Lines = content.split('\n').slice(0, 20).join(' ').toLowerCase()
+          isMatch = [...searchTerms].some(term => first20Lines.includes(term.toLowerCase()))
+        } catch { /* skip unreadable */ }
+      }
+
+      if (isMatch) matched.push(`${dir}/${file}`)
+    }
+  }
+
+  return matched
+}
+
+// ---------------------------------------------------------------------------
+// Implication derivation — cross-references issue text with module signals
+// ---------------------------------------------------------------------------
+
+function deriveImplications(
+  primaryModules: ModuleSignals[],
+  downstreamModules: DownstreamRef[],
+  issueText: string,
+): ImpactReport['implications'] {
+  const lower = issueText.toLowerCase()
+
+  const migrationKeywords = [
+    'add field', 'add column', 'new field', 'new column', 'new entity',
+    'schema', 'migration', 'migrate', 'alter table', 'add table',
+    'remove column', 'rename column', 'drop column', 'change type',
+    'decimal', 'add property', 'stored on', 'store on',
+  ]
+  const migrationLikely = migrationKeywords.some(kw => lower.includes(kw))
+    && (primaryModules.some(m => m.hasEntities) || primaryModules.length === 0)
+
+  const aclKeywords = [
+    'permission', 'permissions', 'acl', 'feature id', 'feature flag',
+    'role', 'roles', 'access control', 'require feature', 'rbac',
+    'restrict access', 'new acl feature',
+  ]
+  const aclTouchpoint = aclKeywords.some(kw => lower.includes(kw))
+    && primaryModules.some(m => m.hasAcl)
+
+  const apiKeywords = [
+    'api', 'endpoint', 'route', 'rest', 'expose in api', 'api response',
+    'api route', 'http', 'crud route', 'exposed in the api',
+  ]
+  const apiRouteChange = apiKeywords.some(kw => lower.includes(kw))
+    && primaryModules.some(m => m.hasApi)
+
+  // Enricher signal stays purely structural — downstream breakage is inherent risk
+  const enricherAffected = downstreamModules.length > 0
+    || primaryModules.some(m => m.hasEnrichers)
+
+  return { migrationLikely, aclTouchpoint, apiRouteChange, enricherAffected }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -365,19 +526,17 @@ async function main() {
   // Step 3: detect downstream consumers
   const downstreamModules = findDownstreamModules(repo, candidateIds)
 
-  // Step 4: derive implications from signals
-  const implications = {
-    migrationLikely: primaryModules.some(m => m.hasEntities),
-    aclTouchpoint: primaryModules.some(m => m.hasAcl),
-    apiRouteChange: primaryModules.some(m => m.hasApi),
-    enricherAffected: downstreamModules.length > 0 || primaryModules.some(m => m.hasEnrichers),
-  }
+  // Step 4: derive implications from signals AND issue text
+  const implications = deriveImplications(primaryModules, downstreamModules, input)
 
   // Step 5: determine strategy
   const { strategy, reason: strategyReason } = determineStrategy(primaryModules, input)
 
   // Step 6: build naive misses
   const naiveAgentMisses = buildNaiveMisses(primaryModules, downstreamModules, implications)
+
+  // Step 7: find relevant specs
+  const relevantSpecs = findRelevantSpecs(repo, candidateIds, input)
 
   const report: ImpactReport = {
     primaryModules,
@@ -386,12 +545,13 @@ async function main() {
     strategy,
     strategyReason,
     naiveAgentMisses,
+    relevantSpecs,
   }
 
   if (format === 'json') {
     console.log(JSON.stringify(report, null, 2))
   } else {
-    console.log(renderMarkdown(report, input))
+    console.log(renderMarkdown(report, input, repo))
   }
 }
 
