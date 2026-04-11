@@ -1,9 +1,9 @@
 ---
-name: om-impact-router
+name: impact-router
 description: Pre-spec impact analysis and strategy routing for Open Mercato. Run this skill when a developer has an issue, feature request, or change description and needs to know: (1) which modules and files are likely affected, (2) whether to extend an existing module, scaffold a new one, or eject and customize core behaviour, (3) which AGENTS.md files and specs to load before writing any code. Triggers on phrases like "analyze blast radius", "what modules are affected", "should this be extension or scaffold", "what context should I load", "plan this OM feature", or any time scope or module impact is unclear before spec writing or implementation begins.
 ---
 
-# om-impact-router
+# impact-router
 
 Answer three questions before any coding or spec writing begins:
 
@@ -29,13 +29,13 @@ Accept any of:
 ### Step 1 — Run the fact-gathering script
 
 ```bash
-npx tsx .ai/skills/om-impact-router/scripts/impact_map.ts \
+npx tsx .ai/skills/impact-router/scripts/impact_map.ts \
   --input "<issue text or path to input file>" \
   --repo <repo root, defaults to cwd>
 ```
 
 The script outputs a `FactReport` JSON containing:
-- `primaryModules` — module signals (16 boolean file-existence checks per module)
+- `primaryModules` — module signals (14 boolean file-existence checks + moduleId and path per module)
 - `downstreamModules` — other modules whose AGENTS.md references a primary module
 - `relevantSpecs` — spec files matching affected module keywords (recursive traversal)
 - `candidateIds` — raw module IDs identified from issue text

@@ -1,4 +1,4 @@
-# om-impact-router — Gap Analysis & Next Steps
+# impact-router — Gap Analysis & Next Steps
 
 ## Current State (as of 2026-04-11)
 
@@ -129,7 +129,7 @@ Downstream detection greps AGENTS.md text for module name mentions. It doesn't t
 The skill is standalone. The planned agentic workflow from the hackathon analysis is not wired:
 
 ```
-Issue → om-impact-router → Mini-spec → Strategy decision → om-implement-spec → om-integration-tests → om-code-review
+Issue → impact-router → Mini-spec → Strategy decision → om-implement-spec → om-integration-tests → om-code-review
 ```
 
 This is the section 4A workflow from the analysis document. Currently, the skill emits a "Next Action" recommendation but doesn't programmatically hand off to the next skill.
@@ -186,8 +186,8 @@ Codex verdict: *"The skill produces materially inaccurate recommendations for co
 
 ### Via CLI (script directly)
 ```bash
-npx tsx .ai/skills/om-impact-router/scripts/impact_map.ts \
-  --input .ai/skills/om-impact-router/scripts/fixtures/sample_input_base_price.md \
+npx tsx .ai/skills/impact-router/scripts/impact_map.ts \
+  --input .ai/skills/impact-router/scripts/fixtures/sample_input_base_price.md \
   --format json
 ```
 

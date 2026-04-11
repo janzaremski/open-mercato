@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * om-impact-router: impact_map.ts
+ * impact-router: impact_map.ts
  *
  * Deterministic fact-gatherer for Open Mercato modules.
  * Given an issue description and repo root, scans the filesystem for module
