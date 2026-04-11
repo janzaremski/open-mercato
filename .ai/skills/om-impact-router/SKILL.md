@@ -1,0 +1,119 @@
+---
+name: om-impact-router
+description: Pre-spec impact analysis and strategy routing for Open Mercato. Run this skill when a developer has an issue, feature request, or change description and needs to know: (1) which modules and files are likely affected, (2) whether to extend an existing module, scaffold a new one, or eject and customize core behaviour, (3) which AGENTS.md files and specs to load before writing any code. Triggers on phrases like "analyze blast radius", "what modules are affected", "should this be extension or scaffold", "what context should I load", "plan this OM feature", or any time scope or module impact is unclear before spec writing or implementation begins.
+---
+
+# om-impact-router
+
+Answer three questions before any coding or spec writing begins:
+
+1. **What does this change touch?** — modules, entities, ACL, API routes, migrations, downstream consumers
+2. **What strategy?** — system-extension, module-scaffold, or eject-and-customize
+3. **What context to load?** — exact AGENTS.md paths and skills for the chosen path
+
+## When to Run
+
+Run after matching the task in the root AGENTS.md task router and checking `.ai/specs/` for existing specs, but **before** writing a spec or any code. Skip if the task is already fully scoped in an approved spec.
+
+## Inputs
+
+Accept any of:
+
+- Plain-language issue or feature description (most common)
+- A spec title or path from `.ai/specs/`
+- A diff or list of changed files
+- A module hint (e.g. "catalog", "sales")
+
+## How to Produce the Report
+
+### Step 1 — Run the impact scanner
+
+```bash
+npx tsx .ai/skills/om-impact-router/scripts/impact_map.ts \
+  --input "<issue text or path to input file>" \
+  --repo <repo root, defaults to cwd>
+```
+
+The script outputs a JSON report. Use it as the factual foundation for sections 1 and 2.
+
+If the script cannot run (environment issue), fall back to manual analysis: read the issue, identify candidate module names, check `packages/core/src/modules/<id>/` for the file signals listed in `references/strategy-router-rules.md`.
+
+### Step 2 — Determine strategy
+
+Apply the decision table in `references/strategy-router-rules.md` to the script output.
+Do not guess — if signals are ambiguous, report the strategy as "uncertain" and list what additional information would resolve it.
+
+### Step 3 — Build context package
+
+Use `references/context-routing-map.md` to map affected modules to their AGENTS.md paths.
+Always include `packages/core/AGENTS.md` when any core module is involved.
+
+### Step 4 — Emit the report
+
+## Output Format
+
+Produce exactly four sections:
+
+---
+
+### 1. Impact Summary
+
+| Area | Detail |
+|------|--------|
+| Primary module | `<id>` — `packages/core/src/modules/<id>/` |
+| Downstream modules | `<id>` (reason: …) |
+| Entities affected | migration likely / schema stable |
+| ACL touchpoints | feature IDs needed or none |
+| API routes | new / modified / none |
+| Migrations | required / not required |
+
+### 2. Strategy Decision
+
+**Recommended: `system-extension` / `module-scaffold` / `eject-and-customize`**
+
+Reason: _one sentence grounded in file signals or BC rules_
+
+If uncertain: state what information would resolve the ambiguity.
+
+### 3. Context Package
+
+Load these before writing any spec or code:
+
+- `AGENTS.md` (root)
+- `packages/core/AGENTS.md`
+- `packages/core/src/modules/<primary>/AGENTS.md`
+- `packages/core/src/modules/<downstream>/AGENTS.md` _(if applicable)_
+- `.ai/skills/spec-writing/SKILL.md` _(if no spec exists)_
+- `.ai/skills/pre-implement-spec/SKILL.md` _(if spec exists, before implementation)_
+- Relevant specs from `.ai/specs/` matching affected modules
+
+### 4. Next Action
+
+One of:
+- **Write spec** → use `spec-writing` skill with the context package above
+- **Run pre-implement-spec** → existing spec needs BC and readiness audit before implementation
+- **Handoff to implement-spec** → spec is approved and ready
+- **Stop and confirm** → eject path requires explicit decision before proceeding
+
+---
+
+## Hallucination Rule
+
+If the script cannot prove a dependency from a file signal or an AGENTS.md reference, mark it as `possible` or omit it. A conservative report is more credible than a confident wrong one.
+
+## Naive Agent Warning
+
+Always include a **"Naive agent likely misses"** callout listing the 2–3 highest-risk items that an agent without this report would skip. This is the clearest way to demonstrate the skill's value.
+
+Example:
+```
+Naive agent likely misses:
+- downstream sales enricher that reads catalog pricing data
+- ACL feature declaration required for the new field
+- database migration for the new column
+```
+
+## References
+
+- `references/strategy-router-rules.md` — full decision table with file-level signals
+- `references/context-routing-map.md` — module → AGENTS.md path mapping from the develop task router
